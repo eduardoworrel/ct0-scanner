@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>DevGear Store</title>
+<body><header>DevGear</header>
+<div class="search">Results for: <span id="q"></span></div>
+<main><h1>Mechanical Keyboards</h1><p>Free shipping over $50.</p>
+<form action="http://devgear.example/checkout" method="post">
+<input name="card" placeholder="card number"><button>Pay</button></form></main>
+<img src="https://px.adtrack.example/pixel?uid=42&ref=checkout" width="1" height="1" alt="">
+<script>
+const q=new URLSearchParams(location.search).get("q")||"";
+document.getElementById("q").innerHTML=q;               // reflected DOM-XSS
+localStorage.setItem("dg_session","eyJhbGciOiJIUzI1NiJ9.payload.sig");
+</script></body>

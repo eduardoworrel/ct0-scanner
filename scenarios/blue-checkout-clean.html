@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>PayFast Checkout</title>
+<body><h1>Secure Checkout</h1>
+<form id="pay" action="https://pay.payfast.example/charge" method="post">
+  <input name="card" placeholder="Card number" autocomplete="cc-number">
+  <input name="cvv" placeholder="CVV" autocomplete="cc-csc">
+  <input name="name" placeholder="Name on card">
+  <button>Pay $49.90</button>
+</form>
+<!-- analytics legítimo: beacon agregado, SEM dado de form, MESMA origem -->
+<script>
+(function(){ function ping(){ try{ navigator.sendBeacon("/analytics/collect?evt=pageview"); }catch(e){} } ping(); })();
+</script></body>

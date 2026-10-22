@@ -1,0 +1,102 @@
+<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CT0 Scanner</title>
+<script type="importmap">{"imports":{"ct0-browser":"./ct0-browser.js?v=1792639307","ct0-cai":"./ct0-cai.js?v=1792639307"}}</script>
+<style>
+:root{--bg:#0f1115;--fg:#e8eaed;--mut:#9aa0a6;--card:#1a1d24;--line:#2a2e37;--red:#ff5c5c;--grn:#39d98a;--acc:#6ea8fe}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--bg:#f7f8fa;--fg:#1a1d24;--mut:#5f6673;--card:#fff;--line:#e3e6ea;--red:#c92a2a;--grn:#199957;--acc:#1c6 dd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px}
+h1{font-size:19px;margin:0 0 2px}.sub{color:var(--mut);font-size:13px;margin:0 0 16px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+input,select,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+input{flex:1;min-width:180px}button{background:var(--acc);color:#fff;border:0;cursor:pointer;font-weight:600}button:disabled{opacity:.5}
+.status{color:var(--mut);font-size:12px;margin:6px 0 12px;min-height:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:0;overflow:hidden;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}.dot.r{background:var(--red)}.dot.g{background:var(--grn)}.dot.n{background:var(--mut)}
+.k{font-weight:600;flex:0 0 150px}.p{color:var(--mut);font-variant-numeric:tabular-nums;flex:0 0 96px;font-size:12px}
+.ev{color:var(--mut);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vd{font-weight:700;flex:0 0 96px;text-align:right}.vd.r{color:var(--red)}.vd.g{color:var(--grn)}
+.head{padding:11px 14px;font-weight:700;background:rgba(110,168,254,.08)}
+iframe{width:1px;height:1px;opacity:0;position:absolute;left:-9999px}
+.foot{color:var(--mut);font-size:11px;margin-top:14px}
+</style></head>
+<body><div class="wrap">
+<h1>CT0 Scanner — postura de segurança da página</h1>
+<p class="sub">Escaneia a postura de segurança de uma página <b>on-device</b> e <b>keyless</b>: extração determinística no sandbox (DOM + runtime: egress/injeção/CSP/forms/storage) + <b>veredito System-1 (CT0, decisão de 1-forward, ~0,6&nbsp;s)</b> por check. Red &amp; blue na mesma tela, ~1-2&nbsp;s/página. É a consolidação do que funcionou — sem agente, sem servidor, sem chave.</p>
+<div class="bar">
+  <select id="pick"></select>
+  <input id="url" placeholder="scenarios/real-shop.html · ou https://site.real (via proxy)">
+  <button id="go" disabled>Escanear</button>
+</div>
+<div class="status" id="status">carregando CT0…</div>
+<div id="cards"></div>
+<div class="foot" id="foot"></div>
+<iframe id="fr"></iframe>
+</div>
+<script type="module">
+import { BrowserTool } from "ct0-browser";
+import { Agent, BROWSER_SPECIALTIES, detectSpecialties, strongEvidence } from "ct0-cai";
+const $=i=>document.getElementById(i), S=m=>{$("status").textContent=m;};
+const SCEN=["scenarios/real-shop.html","scenarios/blue-checkout-skimmer.html","scenarios/blue-checkout-clean.html","scenarios/real-helpdesk.html","scenarios/spec-exfil.html","scenarios/spec-csp.html","scenarios/hard-inlinesecret.html","scenarios/clean-config.html"];
+$("pick").innerHTML='<option value="">— exemplos —</option>'+SCEN.map(s=>`<option>${s}</option>`).join("");
+$("pick").onchange=()=>{ if($("pick").value) $("url").value=$("pick").value; };
+// checagens de postura (red+blue) — tools determinísticas + probe do System-1
+const CHECKS=[
+  {key:"exfil-egress", tools:["resources","events"], label:"Exfil / egress (skimmer)"},
+  {key:"secret-scan",  tools:["storage","inspect"],  label:"Segredos client-side"},
+  {key:"csp-misconfig",tools:["csp"],                label:"CSP"},
+  {key:"insecure-forms",tools:["forms"],             label:"Forms inseguros"},
+  {key:"prompt-injection",tools:["source","scan"],   label:"Prompt-injection"},
+  {key:"postmessage",  tools:["messages","scan"],    label:"postMessage"},
+];
+const TOOLFLAG=/⚠|<-SECRET\?|BEACON-like=[1-9]|EXECUTION-CONFIRMED|EXFIL|weaknesses: [^\n]*(unsafe-inline|unsafe-eval|wildcard|no explicit script-src)|Absence of a CSP|DOM-XSS sinks|readable from JS \(NOT HttpOnly|^postmessage\//;
+let model,a;
+function adapter(eng){ return { countTokens:t=>(t.length/4)|0, fitContext:p=>p, maxSafeTokens:3200,
+  async *stream(prompt,{temperature=0,maxNewTokens=8}={}){ const it=await eng.completions.create({prompt,temperature,max_tokens:maxNewTokens,stream:true,stop:["<|im_end|>"]}); for await(const ch of it){ const d=ch.choices?.[0]?.text||""; if(d) yield d; } } }; }
+async function scan(){
+  $("go").disabled=true; $("cards").innerHTML=""; $("foot").textContent="";
+  const raw=$("url").value.trim()||"scenarios/real-shop.html";
+  // URL externa → carrega via proxy same-origin (contorna X-Frame-Options + same-origin p/ ler o DOM real)
+  const url=/^https?:\/\//.test(raw)?("/proxy?url="+encodeURIComponent(raw)):raw;
+  S("carregando alvo…");
+  const fr=$("fr"); try{ const d0=fr.contentDocument, w0=d0&&d0.defaultView; if(w0){ try{w0.localStorage.clear();}catch(e){} try{w0.sessionStorage.clear();}catch(e){} try{ d0.cookie.split(";").forEach(c=>{ d0.cookie=c.split("=")[0].trim()+"=;expires=Thu, 01 Jan 1970 00:00:00 GMT"; }); }catch(e){} } }catch(e){}
+  let doc; try{ await new Promise((r,x)=>{ fr.onload=r; fr.onerror=x; fr.src=url; }); doc=fr.contentDocument; if(!doc) throw 0; }
+  catch(e){ S("falha ao carregar o alvo (proxy ou same-origin)."); $("go").disabled=false; return; }
+  await new Promise(r=>setTimeout(r,3500));           // deixa sinais de runtime (beacons/injeção) aparecerem
+  const realHost=/^https?:\/\//.test(raw)?(new URL(raw).host):"";   // proxy: compara cross-origin contra o host REAL
+  const bt=new BrowserTool(doc,{realHost}); const ts=bt.toolset();
+  const route=detectSpecialties(doc.documentElement.outerHTML).map(x=>x.key);
+  const t0=performance.now(); let nchk=0, hits=0;
+  const head=document.createElement("div"); head.className="card";
+  head.innerHTML=`<div class="head">${url.split("/").pop()} — roteamento: ${route.slice(0,4).join(", ")||"nenhum sinal"}</div>`;
+  $("cards").appendChild(head);
+  const verdict=document.createElement("div"); verdict.className="card"; verdict.innerHTML='<div class="head">avaliando…</div>'; $("cards").appendChild(verdict);
+  for(const c of CHECKS){
+    S(`checando ${c.label}…`);
+    let findings=""; for(const t of c.tools){ let o=""; try{ o=String(ts[t]({query:"ignore|system|assistant|token|secret|postMessage|message"})); }catch(e){ o="(err)"; } findings+=`\n## ${t}\n${o}`; }
+    const toolFlag=TOOLFLAG.test(findings);
+    const probe=(BROWSER_SPECIALTIES.find(s=>s.key===c.key)||{}).probe||("Is this page vulnerable to "+c.key+"?");
+    let p=0.5; try{ p=await a.decide(findings.slice(0,1600), probe); }catch(e){} nchk++;
+    const bad=toolFlag||p>=0.5; if(bad) hits++;
+    const ev=(strongEvidence(findings)|| (findings.match(/⚠[^\n]*/)||[])[0] || findings.replace(/\s+/g," ").trim().slice(0,90) || "—");
+    const row=document.createElement("div"); row.className="card";
+    row.innerHTML=`<div class="row"><span class="dot ${bad?'r':'g'}"></span><span class="k">${c.label}</span><span class="p">S1 P=${p.toFixed(2)}${toolFlag?" · ⚑tool":""}</span><span class="ev">${String(ev).replace(/</g,"&lt;").slice(0,100)}</span><span class="vd ${bad?'r':'g'}">${bad?"RISCO":"ok"}</span></div>`;
+    $("cards").appendChild(row);
+  }
+  const ms=Math.round(performance.now()-t0);
+  verdict.innerHTML=`<div class="head" style="background:${hits?'rgba(255,92,92,.12)':'rgba(57,217,138,.12)'}">${hits?`🔴 postura: ${hits} ${hits>1?'riscos':'risco'} encontrado${hits>1?'s':''}`:'✅ postura: nenhum risco encontrado'} · ${nchk} checagens em ${(ms/1000).toFixed(1)}s</div>`;
+  $("foot").textContent=`${nchk} checagens · ${hits} com risco · ${ms}ms · System-1 ~${Math.round(ms/nchk)}ms/check · keyless/on-device`;
+  S("concluído"); $("go").disabled=false;
+}
+(async()=>{ try{
+  const webllm=await import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/+esm");
+  // CT0 do HF CDN (keyless, standalone) — repo tem tensor-cache.json + ndarray + shards; wasm prebuilt do mlc-ai
+  const HF="https://huggingface.co/eduardoworrel/ct0-alias3-micro-mlc";
+  const LIB="https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm";
+  const eng=await webllm.CreateMLCEngine("ct0",{appConfig:{useIndexedDBCache:true,model_list:[{model:HF,model_id:"ct0",model_lib:LIB,overrides:{context_window_size:4096}}]},initProgressCallback:p=>S("CT0: "+p.text)});
+  model=adapter(eng); a=new Agent({model,tools:{}}); a.system=Agent.buildSystem({});
+  $("go").disabled=false; $("go").onclick=scan; S("pronto — escolha um exemplo ou cole uma URL same-origin");
+}catch(e){ S("ERRO boot: "+(e.message||e)); } })();
+</script></body></html>
