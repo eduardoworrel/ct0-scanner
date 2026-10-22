@@ -52,6 +52,11 @@ const CHECKS=[
   {key:"insecure-forms",tools:["forms"],             label:"Forms inseguros"},
   {key:"prompt-injection",tools:["source","scan"],   label:"Prompt-injection"},
   {key:"postmessage",  tools:["messages","scan"],    label:"postMessage"},
+  {key:"dom-xss",      tools:["sinks","scan"],       label:"DOM-XSS (sinks)",        probe:"Does this page write user-controllable input into a dangerous DOM sink (innerHTML, document.write, eval) in a way that enables XSS?"},
+  {key:"tabnabbing",   tools:["links"],              label:"Links perigosos",        probe:"Does this page have dangerous links — target=_blank without rel=noopener (tabnabbing) or javascript: URLs?"},
+  {key:"iframe-sandbox",tools:["iframes"],           label:"Iframes sem sandbox",    probe:"Does this page embed a nested iframe without a sandbox attribute (framing/clickjacking risk)?"},
+  {key:"dom-clobber",  tools:["clobber"],            label:"DOM clobbering",         probe:"Does this page have element id/name attributes colliding with JS globals (DOM clobbering)?"},
+  {key:"cookies-httponly",tools:["cookies"],         label:"Cookies sem HttpOnly",   probe:"Are there cookies readable from JavaScript (missing HttpOnly), exposing session/sensitive values to XSS?"},
 ];
 const TOOLFLAG=/⚠|<-SECRET\?|BEACON-like=[1-9]|EXECUTION-CONFIRMED|EXFIL|weaknesses: [^\n]*(unsafe-inline|unsafe-eval|wildcard|no explicit script-src)|Absence of a CSP|DOM-XSS sinks|readable from JS \(NOT HttpOnly|^postmessage\//;
 let model,a;
@@ -68,7 +73,7 @@ async function scan(){
   let html; try{ const res=await fetch(src); if(!res.ok) throw 0; html=await res.text(); }
   catch(e){ S("falha ao buscar o alvo (proxy/fetch)."); $("go").disabled=false; return; }
   const fr=$("fr");
-  try{ const w0=fr.contentWindow; if(w0){ try{w0.localStorage.clear();}catch(e){} try{w0.sessionStorage.clear();}catch(e){} } }catch(e){}  // isola scans (srcdoc herda origem do pai)
+  try{ const w0=fr.contentWindow; if(w0){ try{w0.localStorage.clear();}catch(e){} try{w0.sessionStorage.clear();}catch(e){} try{ const d0=w0.document; (d0.cookie||"").split(";").forEach(c=>{ const k=c.split("=")[0].trim(); if(k) d0.cookie=k+"=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/"; }); }catch(e){} } }catch(e){}  // isola scans (srcdoc herda origem do pai)
   let doc; try{ await new Promise((r,x)=>{ fr.onload=r; fr.onerror=()=>x(0); fr.srcdoc=html; }); doc=fr.contentDocument; if(!doc) throw 0; }
   catch(e){ S("falha ao renderizar o alvo."); $("go").disabled=false; return; }
   await new Promise(r=>setTimeout(r,3500));           // deixa sinais de runtime (beacons/injeção) aparecerem
@@ -84,7 +89,7 @@ async function scan(){
     S(`checando ${c.label}…`);
     let findings=""; for(const t of c.tools){ let o=""; try{ o=String(ts[t]({query:"ignore|system|assistant|token|secret|postMessage|message"})); }catch(e){ o="(err)"; } findings+=`\n## ${t}\n${o}`; }
     const toolFlag=TOOLFLAG.test(findings);
-    const probe=(BROWSER_SPECIALTIES.find(s=>s.key===c.key)||{}).probe||("Is this page vulnerable to "+c.key+"?");
+    const probe=c.probe||(BROWSER_SPECIALTIES.find(s=>s.key===c.key)||{}).probe||("Is this page vulnerable to "+c.key+"?");
     let p=0.5; try{ p=await a.decide(findings.slice(0,1600), probe); }catch(e){} nchk++;
     const bad=toolFlag||p>=0.5; if(bad) hits++;
     const ev=(strongEvidence(findings)|| (findings.match(/⚠[^\n]*/)||[])[0] || findings.replace(/\s+/g," ").trim().slice(0,90) || "—");
