@@ -1,6 +1,10 @@
 import http.server, socketserver, urllib.request, urllib.parse, sys
 PORT=int(__import__("os").environ.get("PORT","8008"))
 class H(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("X-Frame-Options","SAMEORIGIN")
+        self.send_header("Content-Security-Policy","frame-ancestors 'self'")
+        super().end_headers()
     def do_GET(self):
         if self.path.startswith("/proxy?"):
             q=urllib.parse.parse_qs(self.path.split("?",1)[1])
