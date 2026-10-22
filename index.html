@@ -58,19 +58,24 @@ function adapter(eng){ return { countTokens:t=>(t.length/4)|0, fitContext:p=>p, 
 async function scan(){
   $("go").disabled=true; $("cards").innerHTML=""; $("foot").textContent="";
   const raw=$("url").value.trim()||"scenarios/real-shop.html";
-  // URL externa → carrega via proxy same-origin (contorna X-Frame-Options + same-origin p/ ler o DOM real)
-  const url=/^https?:\/\//.test(raw)?("/proxy?url="+encodeURIComponent(raw)):raw;
+  const ext=/^https?:\/\//.test(raw);
+  // busca o HTML (externo → via proxy same-origin; local → fetch) e injeta via srcdoc.
+  // srcdoc = conteúdo inline, SEM resposta HTTP → não sofre X-Frame-Options de nenhum host; same-origin, DOM legível.
+  const src=ext?("/proxy?url="+encodeURIComponent(raw)):raw;
   S("carregando alvo…");
-  const fr=$("fr"); try{ const d0=fr.contentDocument, w0=d0&&d0.defaultView; if(w0){ try{w0.localStorage.clear();}catch(e){} try{w0.sessionStorage.clear();}catch(e){} try{ d0.cookie.split(";").forEach(c=>{ d0.cookie=c.split("=")[0].trim()+"=;expires=Thu, 01 Jan 1970 00:00:00 GMT"; }); }catch(e){} } }catch(e){}
-  let doc; try{ await new Promise((r,x)=>{ fr.onload=r; fr.onerror=x; fr.src=url; }); doc=fr.contentDocument; if(!doc) throw 0; }
-  catch(e){ S("falha ao carregar o alvo (proxy ou same-origin)."); $("go").disabled=false; return; }
+  let html; try{ const res=await fetch(src); if(!res.ok) throw 0; html=await res.text(); }
+  catch(e){ S("falha ao buscar o alvo (proxy/fetch)."); $("go").disabled=false; return; }
+  const fr=$("fr");
+  try{ const w0=fr.contentWindow; if(w0){ try{w0.localStorage.clear();}catch(e){} try{w0.sessionStorage.clear();}catch(e){} } }catch(e){}  // isola scans (srcdoc herda origem do pai)
+  let doc; try{ await new Promise((r,x)=>{ fr.onload=r; fr.onerror=()=>x(0); fr.srcdoc=html; }); doc=fr.contentDocument; if(!doc) throw 0; }
+  catch(e){ S("falha ao renderizar o alvo."); $("go").disabled=false; return; }
   await new Promise(r=>setTimeout(r,3500));           // deixa sinais de runtime (beacons/injeção) aparecerem
   const realHost=/^https?:\/\//.test(raw)?(new URL(raw).host):"";   // proxy: compara cross-origin contra o host REAL
   const bt=new BrowserTool(doc,{realHost}); const ts=bt.toolset();
   const route=detectSpecialties(doc.documentElement.outerHTML).map(x=>x.key);
   const t0=performance.now(); let nchk=0, hits=0;
   const head=document.createElement("div"); head.className="card";
-  head.innerHTML=`<div class="head">${url.split("/").pop()} — roteamento: ${route.slice(0,4).join(", ")||"nenhum sinal"}</div>`;
+  head.innerHTML=`<div class="head">${ext?new URL(raw).host:raw.split("/").pop()} — roteamento: ${route.slice(0,4).join(", ")||"nenhum sinal"}</div>`;
   $("cards").appendChild(head);
   const verdict=document.createElement("div"); verdict.className="card"; verdict.innerHTML='<div class="head">avaliando…</div>'; $("cards").appendChild(verdict);
   for(const c of CHECKS){
