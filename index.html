@@ -1,6 +1,6 @@
 <!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CT0 Scanner</title>
-<script type="importmap">{"imports":{"ct0-browser":"./ct0-browser.js?v=1792639307","ct0-cai":"./ct0-cai.js?v=1792639307"}}</script>
+<script type="importmap">{"imports":{"ct0-browser":"./ct0-browser.js?v=1792648299","ct0-cai":"./ct0-cai.js?v=1792648299","ct0-webllm":"./ct0-webllm.js?v=1792648299"}}</script>
 <style>
 :root{--bg:#0f1115;--fg:#e8eaed;--mut:#9aa0a6;--card:#1a1d24;--line:#2a2e37;--red:#ff5c5c;--grn:#39d98a;--acc:#6ea8fe}
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){--bg:#f7f8fa;--fg:#1a1d24;--mut:#5f6673;--card:#fff;--line:#e3e6ea;--red:#c92a2a;--grn:#199957;--acc:#1c6 dd}}
@@ -40,6 +40,7 @@ iframe#fr{width:100%;height:440px;border:1px solid var(--line);border-radius:10p
 <script type="module">
 import { BrowserTool } from "ct0-browser";
 import { Agent, BROWSER_SPECIALTIES, detectSpecialties, strongEvidence } from "ct0-cai";
+import { webllmModel } from "ct0-webllm";   // adapter WebLLM da lib (stream + decide por logprobs)
 const $=i=>document.getElementById(i), S=m=>{$("status").textContent=m;};
 const SCEN=["scenarios/real-shop.html","scenarios/blue-checkout-skimmer.html","scenarios/blue-checkout-clean.html","scenarios/real-helpdesk.html","scenarios/spec-exfil.html","scenarios/spec-csp.html","scenarios/hard-inlinesecret.html","scenarios/clean-config.html"];
 $("pick").innerHTML='<option value="">— exemplos —</option>'+SCEN.map(s=>`<option>${s}</option>`).join("");
@@ -60,8 +61,7 @@ const CHECKS=[
 ];
 const TOOLFLAG=/⚠|<-SECRET\?|BEACON-like=[1-9]|EXECUTION-CONFIRMED|EXFIL|weaknesses: [^\n]*(unsafe-inline|unsafe-eval|wildcard|no explicit script-src)|Absence of a CSP|DOM-XSS sinks|readable from JS \(NOT HttpOnly|^postmessage\//;
 let model,a;
-function adapter(eng){ return { countTokens:t=>(t.length/4)|0, fitContext:p=>p, maxSafeTokens:3200,
-  async *stream(prompt,{temperature=0,maxNewTokens=8}={}){ const it=await eng.completions.create({prompt,temperature,max_tokens:maxNewTokens,stream:true,stop:["<|im_end|>"]}); for await(const ch of it){ const d=ch.choices?.[0]?.text||""; if(d) yield d; } } }; }
+// adapter WebLLM vem da lib ct0-edge (ct0-webllm) — a PoC usa a lib, não reimplementa o decide
 async function scan(){
   $("go").disabled=true; $("cards").innerHTML=""; $("foot").textContent="";
   const raw=$("url").value.trim()||"scenarios/real-shop.html";
@@ -108,7 +108,7 @@ async function scan(){
   const HF="https://huggingface.co/eduardoworrel/ct0-alias3-micro-mlc";
   const LIB="https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm";
   const eng=await webllm.CreateMLCEngine("ct0",{appConfig:{useIndexedDBCache:true,model_list:[{model:HF,model_id:"ct0",model_lib:LIB,overrides:{context_window_size:4096}}]},initProgressCallback:p=>S("CT0: "+p.text)});
-  model=adapter(eng); a=new Agent({model,tools:{}}); a.system=Agent.buildSystem({});
+  model=webllmModel(eng); a=new Agent({model,tools:{}}); a.system=Agent.buildSystem({});
   $("go").disabled=false; $("go").onclick=scan; S("pronto — escolha um exemplo ou cole uma URL same-origin");
 }catch(e){ S("ERRO boot: "+(e.message||e)); } })();
 </script></body></html>
